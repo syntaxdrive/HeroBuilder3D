@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Copy of 3DHeroBuilder - SaaS",
+  "description": "A professional 3D Hero Section Builder SaaS with Three.js interactive scenes, layout presets, and pro-feature gating.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

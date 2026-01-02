@@ -1,0 +1,119 @@
+
+STUDIO_3D // BACKEND_ARCHITECTURE_v1.1
+--------------------------------------
+
+1. DATA_STRUCTURE PREPARATION:
+   Target Spreadsheet: https://docs.google.com/spreadsheets/d/1Dg6k3EbBUnUi0oKr5Mwt03B69d17VYqr7iJIOFwgGvA/edit
+   Current Deployment URL: https://script.google.com/macros/s/AKfycbyU5-LzcE4uUXL_59kBzV404_1DhY3U7o-X8M1U1A1zTetVveAzoMFEP3HkJtJgLsf6Ew/exec
+
+   Ensure the FIRST SHEET (tab) has these headers in Row 1:
+   email | name | picture | isPro | plan | expiry | lastLogin
+
+2. HANDSHAKE_CODE (Google Apps Script):
+   Copy and paste the code block below into your Apps Script editor (Extensions > Apps Script):
+
+```javascript
+/**
+ * STUDIO_3D: CLOUD_IDENTITY_SYNC
+ * Master Controller for User Session Data and Subscription Gating.
+ * Linked Spreadsheet ID: 1Dg6k3EbBUnUi0oKr5Mwt03B69d17VYqr7iJIOFwgGvA
+ */
+
+const SPREADSHEET_ID = "1Dg6k3EbBUnUi0oKr5Mwt03B69d17VYqr7iJIOFwgGvA"; 
+
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents);
+    const action = data.action;
+    const email = data.email;
+
+    if (!email) throw new Error("CRITICAL_ERROR: Identity token missing.");
+
+    // Identity Management Logic
+    if (action === "getUser" || action === "updateUser") {
+      const user = upsertUser(data);
+      return ContentService.createTextOutput(JSON.stringify(user))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({ status: "OK" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ 
+      error: "SYNC_FAILURE", 
+      details: err.toString() 
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function upsertUser(data) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheets()[0];
+  const rows = sheet.getDataRange().getValues();
+  const email = data.email.toLowerCase();
+  
+  let userRowIndex = -1;
+  // Look for existing user
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] && rows[i][0].toString().toLowerCase() === email) {
+      userRowIndex = i + 1;
+      break;
+    }
+  }
+
+  const timestamp = new Date();
+  
+  if (userRowIndex === -1) {
+    // Register New User
+    const newUser = [
+      email, 
+      data.name || "Anonymous", 
+      data.picture || "", 
+      false,     // isPro
+      "free",    // plan
+      "",        // expiry
+      timestamp  // lastLogin
+    ];
+    sheet.appendRow(newUser);
+    return { 
+      email, 
+      name: data.name, 
+      picture: data.picture, 
+      isPro: false, 
+      plan: 'free', 
+      expiry: "" 
+    };
+  } else {
+    // Sync Existing User
+    sheet.getRange(userRowIndex, 7).setValue(timestamp);
+    if (data.name) sheet.getRange(userRowIndex, 2).setValue(data.name);
+    if (data.picture) sheet.getRange(userRowIndex, 3).setValue(data.picture);
+    
+    // Only update subscription status if explicitly provided
+    if (data.isPro !== undefined) sheet.getRange(userRowIndex, 4).setValue(data.isPro);
+    if (data.plan) sheet.getRange(userRowIndex, 5).setValue(data.plan);
+    if (data.expiry) sheet.getRange(userRowIndex, 6).setValue(data.expiry);
+
+    // Read and return the final state
+    const finalData = sheet.getRange(userRowIndex, 1, 1, 6).getValues()[0];
+    return { 
+      email: finalData[0],
+      name: finalData[1],
+      picture: finalData[2],
+      isPro: finalData[3] === true || finalData[3] === "true",
+      plan: finalData[4],
+      expiry: finalData[5]
+    };
+  }
+}
+
+function doGet(e) {
+  return ContentService.createTextOutput("HANDSHAKE_NODE_ONLINE")
+    .setMimeType(ContentService.MimeType.TEXT);
+}
+```
+
+3. DEPLOYMENT CONFIRMED:
+   Web App URL: https://script.google.com/macros/s/AKfycbyU5-LzcE4uUXL_59kBzV404_1DhY3U7o-X8M1U1A1zTetVveAzoMFEP3HkJtJgLsf6Ew/exec
+
+   Your app is now synced to this endpoint.
