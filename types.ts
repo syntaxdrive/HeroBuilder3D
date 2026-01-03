@@ -1,9 +1,11 @@
 
-export type ShapeType = 'sphere' | 'torus' | 'box' | 'blob' | 'custom';
+export type ShapeType = 'sphere' | 'torus' | 'box' | 'blob' | 'cylinder' | 'cone' | 'torus_ring' | 'octahedron' | 'tetrahedron' | 'custom';
 export type LayoutType = 'split-left' | 'split-right' | 'centered-stack' | 'asymmetric-offset';
 export type AlignmentType = 'left' | 'center' | 'right';
 export type FontFamily = 'Space Grotesk' | 'Inter' | 'serif' | 'mono';
 export type UiTheme = 'dark' | 'light' | 'cyan';
+export type AnimationType = 'none' | 'fade' | 'scale-pop' | 'spin-reveal' | 'slide-up';
+export type ViewMode = 'desktop' | 'tablet' | 'mobile';
 
 export interface HeroConfig {
   headline: string;
@@ -30,6 +32,10 @@ export interface HeroConfig {
   rotationSpeed: number;
   wireframe: boolean;
   modelScale: number;
+  lightingIntensity: number;
+  lightingColor: string;
+  showGrid: boolean;
+  entranceAnimation: AnimationType;
 }
 
 export interface User {
@@ -40,4 +46,11 @@ export interface User {
   name?: string;
   picture?: string;
   exportsToday: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  config: HeroConfig;
+  createdAt: string;
 }

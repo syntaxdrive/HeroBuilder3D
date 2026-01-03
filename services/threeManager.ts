@@ -1,6 +1,6 @@
 
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { HeroConfig, LayoutType } from '../types';
 
 export class SceneManager {
@@ -11,8 +11,15 @@ export class SceneManager {
   private mesh: THREE.Mesh | null = null;
   private clock: THREE.Clock;
   private pointLight: THREE.PointLight | null = null;
+  private ambientLight: THREE.AmbientLight | null = null;
+  private directionalLight: THREE.DirectionalLight | null = null;
+  private gridHelper: THREE.GridHelper | null = null;
   private currentConfig: HeroConfig | null = null;
   private originalPositions: Float32Array | null = null;
+  private entranceStartTime: number = 0;
+  private lastEntranceAnimation: string = 'none';
+  private basePosition: THREE.Vector3 = new THREE.Vector3();
+  private isMobileLayout: boolean = false;
 
   constructor(container: HTMLDivElement) {
     this.scene = new THREE.Scene();
@@ -36,20 +43,48 @@ export class SceneManager {
   }
 
   private initLights() {
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-    const dLight = new THREE.DirectionalLight(0xffffff, 2);
-    dLight.position.set(10, 10, 10);
-    this.scene.add(dLight);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    this.scene.add(this.ambientLight);
+
+    this.directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+    this.directionalLight.position.set(10, 10, 10);
+    this.scene.add(this.directionalLight);
 
     this.pointLight = new THREE.PointLight(0x00f0ff, 20, 50);
     this.pointLight.position.set(-10, -5, 5);
     this.scene.add(this.pointLight);
+
+    // Initialize Grid Helper (Hidden by default)
+    this.gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x222222);
+    this.gridHelper.position.y = -4;
+    this.gridHelper.visible = false;
+    this.scene.add(this.gridHelper);
   }
 
   public updateObject(config: HeroConfig) {
+    if (config.entranceAnimation !== this.lastEntranceAnimation) {
+      this.entranceStartTime = this.clock.getElapsedTime();
+      this.lastEntranceAnimation = config.entranceAnimation;
+    }
+
     this.currentConfig = config;
+    
+    // Update Lighting
     if (this.pointLight) {
       this.pointLight.color.set(config.objColor);
+    }
+    if (this.ambientLight) {
+      this.ambientLight.intensity = config.lightingIntensity * 0.5;
+      this.ambientLight.color.set(config.lightingColor);
+    }
+    if (this.directionalLight) {
+      this.directionalLight.intensity = config.lightingIntensity;
+      this.directionalLight.color.set(config.lightingColor);
+    }
+
+    // Update Grid
+    if (this.gridHelper) {
+      this.gridHelper.visible = config.showGrid;
     }
 
     if (this.mesh) {
@@ -65,8 +100,23 @@ export class SceneManager {
       case 'torus':
         geometry = new THREE.TorusKnotGeometry(2, 0.6, detail * 4, detail);
         break;
+      case 'torus_ring':
+        geometry = new THREE.TorusGeometry(2, 0.6, detail * 2, detail * 4);
+        break;
       case 'box':
         geometry = new THREE.BoxGeometry(3, 3, 3, detail, detail, detail);
+        break;
+      case 'cylinder':
+        geometry = new THREE.CylinderGeometry(1.5, 1.5, 4, detail * 2, detail);
+        break;
+      case 'cone':
+        geometry = new THREE.ConeGeometry(2, 4, detail * 2, detail);
+        break;
+      case 'octahedron':
+        geometry = new THREE.OctahedronGeometry(2.5, Math.min(Math.floor(detail / 10), 5));
+        break;
+      case 'tetrahedron':
+        geometry = new THREE.TetrahedronGeometry(2.5, Math.min(Math.floor(detail / 10), 5));
         break;
       case 'blob':
       case 'sphere':
@@ -103,34 +153,39 @@ export class SceneManager {
   private applyLayoutOffsets() {
     if (!this.mesh || !this.currentConfig) return;
     
-    const isMobile = window.innerWidth < 768;
+    // Use the canvas client width to determine layout mode (supports simulated viewports)
+    const width = this.renderer.domElement.clientWidth;
+    const isMobile = width < 768;
     const aspect = this.camera.aspect;
     
-    if (isMobile || aspect < 1) {
-      this.mesh.position.x = 0;
-      this.mesh.position.y = 2.8; 
-      this.camera.position.z = 24 / Math.max(aspect, 0.6);
+    this.isMobileLayout = isMobile || (aspect < 0.8);
+
+    if (this.isMobileLayout) {
+      // Lowered Y to 2.0 to keep it safely in view (centered in top half)
+      this.basePosition.set(0, 2.0, 0);
+      // Increased Z to 28 to provide a wider field of view on narrow screens
+      this.camera.position.z = 28 / Math.max(aspect, 0.5);
     } else {
+      // Tablet and Desktop share the same layout logic
       this.camera.position.z = 15;
       
       switch (this.currentConfig.layout) {
         case 'split-left':
-          this.mesh.position.x = 4.8; 
-          this.mesh.position.y = 0;
+          this.basePosition.set(4.8, 0, 0);
           break;
         case 'split-right':
-          this.mesh.position.x = -4.8;
-          this.mesh.position.y = 0;
+          this.basePosition.set(-4.8, 0, 0);
           break;
         case 'asymmetric-offset':
-          this.mesh.position.x = 3.5;
-          this.mesh.position.y = 1.5;
+          this.basePosition.set(3.5, 1.5, 0);
           break;
         default:
-          this.mesh.position.x = 0;
-          this.mesh.position.y = 0;
+          this.basePosition.set(0, 0, 0);
       }
     }
+    
+    // Apply immediately so there's no frame lag
+    this.mesh.position.copy(this.basePosition);
   }
 
   public resize(width: number, height: number) {
@@ -147,21 +202,56 @@ export class SceneManager {
     if (this.mesh && this.currentConfig && this.originalPositions) {
       const { distortion, rotationSpeed, floatSpeed, layout, modelScale } = this.currentConfig;
       
-      this.mesh.rotation.y = time * 0.15 * rotationSpeed;
+      // Entrance Animation Logic
+      let entranceScale = 1;
+      let entranceY = 0;
+      let entranceRotation = 0;
+      let entranceOpacity = 1;
+
+      if (this.currentConfig.entranceAnimation && this.currentConfig.entranceAnimation !== 'none') {
+        const elapsed = time - this.entranceStartTime;
+        const duration = 1.5;
+        const progress = Math.min(elapsed / duration, 1);
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+
+        switch (this.currentConfig.entranceAnimation) {
+          case 'fade':
+            entranceOpacity = easeOut;
+            break;
+          case 'slide-up':
+            entranceY = -10 * (1 - easeOut);
+            entranceOpacity = easeOut;
+            break;
+          case 'scale-pop':
+            entranceScale = easeOut;
+            entranceOpacity = easeOut;
+            break;
+          case 'spin-reveal':
+            entranceRotation = Math.PI * 2 * (1 - easeOut);
+            entranceScale = easeOut;
+            entranceOpacity = easeOut;
+            break;
+        }
+      }
+
+      this.mesh.rotation.y = (time * 0.15 * rotationSpeed) + entranceRotation;
       this.mesh.rotation.z = time * 0.1 * rotationSpeed;
-      this.mesh.scale.setScalar(modelScale || 1);
+      
+      // Apply mobile scale reduction (35%) if in mobile layout to ensure it fits
+      const mobileScaleFactor = this.isMobileLayout ? 0.65 : 1;
+      this.mesh.scale.setScalar((modelScale || 1) * entranceScale * mobileScaleFactor);
       
       const floatY = Math.sin(time * 0.8 * floatSpeed) * (0.3 * floatSpeed);
-      const isMobile = window.innerWidth < 768;
       
-      let baseY = 0;
-      if (isMobile) {
-        baseY = 2.8;
-      } else {
-        if (layout === 'asymmetric-offset') baseY = 1.5;
+      // Use basePosition calculated in applyLayoutOffsets
+      this.mesh.position.copy(this.basePosition);
+      this.mesh.position.y += floatY + entranceY;
+
+      // Update material opacity
+      if (this.mesh.material instanceof THREE.Material) {
+        this.mesh.material.transparent = true;
+        this.mesh.material.opacity = entranceOpacity;
       }
-      
-      this.mesh.position.y = baseY + floatY;
 
       if (distortion > 0) {
         const positions = this.mesh.geometry.attributes.position.array as Float32Array;

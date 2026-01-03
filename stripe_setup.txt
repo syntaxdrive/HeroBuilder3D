@@ -1,0 +1,91 @@
+
+STRIPE INTEGRATION GUIDE
+------------------------
+
+STEP 1: GET YOUR STRIPE LINK
+1. Go to https://dashboard.stripe.com/test/payment-links/create
+2. Create a product for $5.00.
+3. Create the link.
+4. Copy the URL (starts with https://buy.stripe.com/...).
+5. Open `constants.ts` in your code and paste it into `STRIPE_PAYMENT_LINK`.
+
+STEP 2: CONFIGURE WEBHOOK (AUTOMATIC UPGRADE)
+1. Go to your Google Sheet > Extensions > Apps Script.
+2. Replace your `doPost` function with the UPDATED version below.
+3. Deploy > New Deployment > Deploy (to update the live version).
+
+STEP 3: CONNECT STRIPE TO GOOGLE SHEET
+1. Go to https://dashboard.stripe.com/test/webhooks
+2. Click "Add Endpoint".
+3. Paste your Google Apps Script Web App URL (the one ending in /exec).
+4. Select events to listen for: `checkout.session.completed`.
+5. Click "Add Endpoint".
+
+-------------------------------------------------------
+UPDATED GOOGLE APPS SCRIPT CODE (Copy & Paste this over your existing doPost)
+-------------------------------------------------------
+
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents);
+    
+    // --- STRIPE WEBHOOK HANDLER ---
+    // Listens for successful payments and upgrades the user
+    if (data.type === 'checkout.session.completed') {
+      const session = data.data.object;
+      // Try to get email from client_reference_id first (most reliable if passed), then customer details
+      const email = session.client_reference_id || session.customer_details?.email || session.customer_email;
+      
+      if (email && email.includes('@')) {
+        upsertUser({
+          email: email,
+          isPro: true,
+          plan: 'pro',
+          action: 'updateUser'
+        });
+      }
+      return ContentService.createTextOutput(JSON.stringify({received: true})).setMimeType(ContentService.MimeType.JSON);
+    }
+    // ------------------------------
+
+    const action = data.action;
+
+    // Public read access for embeds
+    if (action === "getProject") {
+      const project = getProject(data.id);
+      return ContentService.createTextOutput(JSON.stringify(project))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    const email = data.email;
+    if (!email) throw new Error("CRITICAL_ERROR: Identity token missing.");
+
+    // Identity Management Logic
+    if (action === "getUser" || action === "updateUser") {
+      const user = upsertUser(data);
+      return ContentService.createTextOutput(JSON.stringify(user))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Project Management Logic
+    if (action === "saveProject") {
+      const result = saveProject(data);
+      return ContentService.createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "getUserProjects") {
+      const projects = getUserProjects(email);
+      return ContentService.createTextOutput(JSON.stringify(projects))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({ status: "OK" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ 
+      error: "SYNC_FAILURE", 
+      details: err.toString() 
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}

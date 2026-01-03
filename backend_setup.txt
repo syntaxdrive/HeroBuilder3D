@@ -9,6 +9,9 @@ STUDIO_3D // BACKEND_ARCHITECTURE_v1.1
    Ensure the FIRST SHEET (tab) has these headers in Row 1:
    email | name | picture | isPro | plan | expiry | lastLogin
 
+   Create a SECOND SHEET (tab) named "Projects" with these headers in Row 1:
+   id | email | name | config | createdAt
+
 2. HANDSHAKE_CODE (Google Apps Script):
    Copy and paste the code block below into your Apps Script editor (Extensions > Apps Script):
 
@@ -25,14 +28,34 @@ function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
     const action = data.action;
-    const email = data.email;
 
+    // Public read access for embeds (no email required)
+    if (action === "getProject") {
+      const project = getProject(data.id);
+      return ContentService.createTextOutput(JSON.stringify(project))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    const email = data.email;
     if (!email) throw new Error("CRITICAL_ERROR: Identity token missing.");
 
     // Identity Management Logic
     if (action === "getUser" || action === "updateUser") {
       const user = upsertUser(data);
       return ContentService.createTextOutput(JSON.stringify(user))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Project Management Logic
+    if (action === "saveProject") {
+      const result = saveProject(data);
+      return ContentService.createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "getUserProjects") {
+      const projects = getUserProjects(email);
+      return ContentService.createTextOutput(JSON.stringify(projects))
         .setMimeType(ContentService.MimeType.JSON);
     }
     
@@ -48,6 +71,154 @@ function doPost(e) {
 
 function upsertUser(data) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheets()[0]; // First sheet is Users
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  
+  let rowIndex = -1;
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] === data.email) {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  const timestamp = new Date().toISOString();
+
+  if (rowIndex === -1) {
+    // Create new user
+    const newUser = [
+      data.email, 
+      data.name || "", 
+      data.picture || "", 
+      false, // isPro
+      "free", // plan
+      "", // expiry
+      timestamp // lastLogin
+    ];
+    sheet.appendRow(newUser);
+    return { 
+      email: data.email, 
+      isPro: false, 
+      plan: "free", 
+      exportsToday: 0 
+    };
+  } else {
+    // Update existing user
+    if (data.action === "updateUser") {
+      // Only update fields if provided
+      if (data.name) sheet.getRange(rowIndex, 2).setValue(data.name);
+      if (data.picture) sheet.getRange(rowIndex, 3).setValue(data.picture);
+      if (data.isPro !== undefined) sheet.getRange(rowIndex, 4).setValue(data.isPro);
+      if (data.plan) sheet.getRange(rowIndex, 5).setValue(data.plan);
+    }
+    
+    // Always update login time
+    sheet.getRange(rowIndex, 7).setValue(timestamp);
+    
+    // Return current user state
+    const currentRow = sheet.getRange(rowIndex, 1, 1, 7).getValues()[0];
+    return {
+      email: currentRow[0],
+      name: currentRow[1],
+      picture: currentRow[2],
+      isPro: currentRow[3],
+      plan: currentRow[4],
+      expiry: currentRow[5],
+      exportsToday: 0 // TODO: Implement export tracking
+    };
+  }
+}
+
+function saveProject(data) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName("Projects");
+  if (!sheet) {
+    sheet = ss.insertSheet("Projects");
+    sheet.appendRow(["id", "email", "name", "config", "createdAt"]);
+  }
+  
+  const id = data.id || Utilities.getUuid();
+  const timestamp = new Date().toISOString();
+  const configStr = JSON.stringify(data.config);
+  
+  // Check if updating existing project
+  const rows = sheet.getDataRange().getValues();
+  let rowIndex = -1;
+  
+  if (data.id) {
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] === data.id && rows[i][1] === data.email) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+  }
+  
+  if (rowIndex !== -1) {
+    // Update
+    sheet.getRange(rowIndex, 3).setValue(data.name);
+    sheet.getRange(rowIndex, 4).setValue(configStr);
+    return { id: data.id, status: "updated" };
+  } else {
+    // Create
+    sheet.appendRow([id, data.email, data.name, configStr, timestamp]);
+    return { id: id, status: "created" };
+  }
+}
+
+function getUserProjects(email) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName("Projects");
+  if (!sheet) return [];
+  
+  const rows = sheet.getDataRange().getValues();
+  const projects = [];
+  
+  // Skip header
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][1] === email) {
+      try {
+        projects.push({
+          id: rows[i][0],
+          name: rows[i][2],
+          config: JSON.parse(rows[i][3]),
+          createdAt: rows[i][4]
+        });
+      } catch (e) {
+        // Skip malformed data
+      }
+    }
+  }
+  
+  return projects.reverse(); // Newest first
+}
+
+function getProject(id) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName("Projects");
+  if (!sheet) return null;
+  
+  const rows = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] === id) {
+      try {
+        return {
+          id: rows[i][0],
+          email: rows[i][1], // Return owner email for attribution if needed
+          name: rows[i][2],
+          config: JSON.parse(rows[i][3]),
+          createdAt: rows[i][4]
+        };
+      } catch (e) {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+```
   const sheet = ss.getSheets()[0];
   const rows = sheet.getDataRange().getValues();
   const email = data.email.toLowerCase();

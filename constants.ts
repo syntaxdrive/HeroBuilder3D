@@ -25,7 +25,11 @@ export const DEFAULT_CONFIG: HeroConfig = {
   floatSpeed: 1,
   rotationSpeed: 1,
   wireframe: false,
-  modelScale: 1.0
+  modelScale: 1.0,
+  lightingIntensity: 1.5,
+  lightingColor: '#ffffff',
+  showGrid: false,
+  entranceAnimation: 'none'
 };
 
 export const PRESETS: Record<string, Partial<HeroConfig>> = {
@@ -63,6 +67,45 @@ export const PRESETS: Record<string, Partial<HeroConfig>> = {
   }
 };
 
+export const MATERIAL_PRESETS: Record<string, Partial<HeroConfig>> = {
+  'Liquid Metal': {
+    metalness: 1.0,
+    roughness: 0.0,
+    transmission: 0,
+    wireframe: false,
+    objColor: '#silver' // Will need to be handled if color isn't desired
+  },
+  'Frosted Glass': {
+    metalness: 0.1,
+    roughness: 0.45,
+    transmission: 0.9,
+    wireframe: false
+  },
+  'Neon Wireframe': {
+    metalness: 0.0,
+    roughness: 0.0,
+    transmission: 0,
+    wireframe: true
+  },
+  'Matte Clay': {
+    metalness: 0.0,
+    roughness: 1.0,
+    transmission: 0,
+    wireframe: false
+  },
+  'Polished Plastic': {
+    metalness: 0.1,
+    roughness: 0.05,
+    transmission: 0,
+    wireframe: false
+  }
+};
+
 export const FREE_EXPORT_LIMIT = 3;
 export const SUBSCRIPTION_PRICE = 5.00;
-export const BACKEND_API_URL = "https://script.google.com/macros/s/AKfycbyU5-LzcE4uUXL_59kBzV404_1DhY3U7o-X8M1U1A1zTetVveAzoMFEP3HkJtJgLsf6Ew/exec";
+export const BACKEND_API_URL = import.meta.env.VITE_BACKEND_API_URL;
+export const STRIPE_PAYMENT_LINK = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
+
+export const FREE_SHAPES = ['sphere', 'box', 'cylinder', 'cone'];
+export const FREE_ANIMATIONS = ['none', 'fade', 'slide-up'];
+
